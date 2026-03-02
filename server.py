@@ -352,7 +352,13 @@ async def run_live(
                         for part in data["content"]["parts"]:
                             if "inlineData" in part:
                                 event_types.append(f"AUDIO({len(part['inlineData'].get('data',''))})")
-                                has_native_audio = True  # Model is sending its own audio
+                                if not has_native_audio:
+                                    has_native_audio = True
+                                    # Cancel any pending Edge TTS — native audio takes over
+                                    if flush_task and not flush_task.done():
+                                        flush_task.cancel()
+                                        flush_task = None
+                                    transcript_buffer = ""
                             if "text" in part:
                                 event_types.append(f"TEXT:{part['text'][:60]}")
                             if "functionCall" in part:
@@ -424,13 +430,6 @@ async def run_live(
 
                     if event_types:
                         print(f"[event] {' | '.join(event_types)}", flush=True)
-
-                    # Strip Gemini native audio — we use Edge TTS instead
-                    if "content" in data and data["content"] and "parts" in data["content"]:
-                        data["content"]["parts"] = [
-                            p for p in data["content"]["parts"]
-                            if "inlineData" not in p
-                        ]
 
                     # Enrich with Cadre metadata for UI
                     data = _enrich_event(data)
