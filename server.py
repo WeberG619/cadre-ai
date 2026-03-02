@@ -68,6 +68,14 @@ async def _check_revit_pipe():
 
 @app.get("/")
 async def index():
+    landing = Path(__file__).parent / "landing.html"
+    if landing.exists():
+        return FileResponse(landing)
+    return FileResponse(Path(__file__).parent / "voice_client.html")
+
+
+@app.get("/app")
+async def app_page():
     return FileResponse(Path(__file__).parent / "voice_client.html")
 
 

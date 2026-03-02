@@ -12,6 +12,7 @@ COPY financial_mcp/ financial_mcp/
 COPY web_search_mcp/ web_search_mcp/
 COPY server.py .
 COPY voice_client.html .
+COPY landing.html .
 
 # Cloud Run sets PORT automatically
 ENV REVIT_ENABLED=false

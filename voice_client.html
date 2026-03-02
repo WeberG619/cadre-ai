@@ -138,13 +138,13 @@
         }
         .msg.user {
             align-self: flex-end;
-            background: var(--blue-bubble);
+            background: linear-gradient(135deg, var(--blue-bubble), rgba(102,126,234,0.12));
             border: 1px solid rgba(102,126,234,0.2);
             border-bottom-right-radius: 4px;
         }
         .msg.agent {
             align-self: flex-start;
-            background: var(--dark-bubble);
+            background: linear-gradient(135deg, var(--dark-bubble), rgba(118,75,162,0.08));
             border: 1px solid var(--border);
             border-bottom-left-radius: 4px;
         }
@@ -165,10 +165,46 @@
             align-items: center;
             justify-content: center;
             color: var(--text-dim);
-            gap: 12px;
+            gap: 16px;
+            padding: 40px;
         }
-        .empty-state svg { width: 48px; height: 48px; opacity: 0.3; fill: var(--text-dim); }
-        .empty-state p { font-size: 0.85em; }
+        .empty-state .hero-icon {
+            width: 80px; height: 80px;
+            border-radius: 50%;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            animation: float 3s ease-in-out infinite;
+        }
+        .empty-state .hero-icon svg { width: 36px; height: 36px; fill: white; opacity: 0.9; }
+        @keyframes float {
+            0%, 100% { transform: translateY(0); }
+            50% { transform: translateY(-8px); }
+        }
+        .empty-state h2 {
+            font-size: 1.4em;
+            font-weight: 600;
+            background: linear-gradient(135deg, var(--accent), var(--purple));
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .empty-state p { font-size: 0.85em; max-width: 320px; text-align: center; line-height: 1.6; }
+        .empty-state .capabilities {
+            display: flex;
+            gap: 12px;
+            flex-wrap: wrap;
+            justify-content: center;
+            margin-top: 8px;
+        }
+        .empty-state .cap-tag {
+            padding: 6px 14px;
+            border-radius: 20px;
+            font-size: 0.75em;
+            background: var(--glass);
+            border: 1px solid var(--glass-border);
+            color: var(--text-dim);
+        }
 
         /* ── Mic Bar (bottom of center) ────────────────────── */
         .mic-bar {
@@ -295,16 +331,21 @@
         /* ── Mobile ──────────────────────────────────────────── */
         @media (max-width: 768px) {
             .main { flex-direction: column; }
-            .panel-right { width: 100%; height: 25vh; border-left: none; border-top: 1px solid var(--border); }
+            .panel-right { display: none; }
             .msg { max-width: 95%; }
             .media-grid { grid-template-columns: repeat(auto-fill, minmax(200px, 1fr)); }
             .media-card img { height: 180px; }
+            .mic-bar { flex-wrap: wrap; gap: 10px; padding: 12px; }
+            .text-input-row { order: 1; min-width: 100%; max-width: 100% !important; }
+            .empty-state .capabilities { gap: 8px; }
+            .empty-state .cap-tag { font-size: 0.7em; padding: 4px 10px; }
         }
         @media (max-width: 480px) {
             .top-bar { padding: 10px 14px; flex-wrap: wrap; gap: 8px; }
             .brand h1 { font-size: 1.1em; }
-            .badge { font-size: 0.65em; padding: 4px 8px; }
+            .status-badges { display: none; }
             #vizCanvas { display: none; }
+            .kbd-hint { display: none; }
         }
 
         /* ── Media Buttons (upload/screen/camera) ──────────── */
@@ -628,8 +669,18 @@
     <div class="center-col">
         <div class="conversation" id="conversation">
             <div class="empty-state" id="emptyState">
-                <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
-                <p>Click the mic to talk, or type a message below</p>
+                <div class="hero-icon">
+                    <svg viewBox="0 0 24 24"><path d="M12 14c1.66 0 3-1.34 3-3V5c0-1.66-1.34-3-3-3S9 3.34 9 5v6c0 1.66 1.34 3 3 3zm-1-9c0-.55.45-1 1-1s1 .45 1 1v6c0 .55-.45 1-1 1s-1-.45-1-1V5zm6 6c0 2.76-2.24 5-5 5s-5-2.24-5-5H5c0 3.53 2.61 6.43 6 6.92V21h2v-3.08c3.39-.49 6-3.39 6-6.92h-2z"/></svg>
+                </div>
+                <h2>Ready to assist</h2>
+                <p>Click the mic to talk, type a message, or drop an image to get started</p>
+                <div class="capabilities">
+                    <span class="cap-tag">Voice Chat</span>
+                    <span class="cap-tag">Image Analysis</span>
+                    <span class="cap-tag">Financial Data</span>
+                    <span class="cap-tag">Web Search</span>
+                    <span class="cap-tag">Screen Capture</span>
+                </div>
             </div>
         </div>
         <div class="mic-bar">
