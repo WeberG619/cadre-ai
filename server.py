@@ -272,6 +272,7 @@ async def run_live(
         last_spoken_text = ""  # Most recent spoken text
         flush_task = None
         tts_lock = asyncio.Lock()
+        has_native_audio = False  # Track if model is sending its own audio
 
         def normalize(s):
             """Normalize text for comparison — lowercase, collapse whitespace."""
@@ -343,6 +344,7 @@ async def run_live(
                         for part in data["content"]["parts"]:
                             if "inlineData" in part:
                                 event_types.append(f"AUDIO({len(part['inlineData'].get('data',''))})")
+                                has_native_audio = True  # Model is sending its own audio
                             if "text" in part:
                                 event_types.append(f"TEXT:{part['text'][:60]}")
                             if "functionCall" in part:
@@ -350,8 +352,8 @@ async def run_live(
                             if "functionResponse" in part:
                                 event_types.append(f"TOOL_RESP:{part['functionResponse'].get('name','?')}")
 
-                    # Accumulate outputTranscription for TTS
-                    if "outputTranscription" in data:
+                    # Accumulate outputTranscription for TTS (only if model isn't sending native audio)
+                    if "outputTranscription" in data and not has_native_audio:
                         ot = data["outputTranscription"]
                         chunk_text = ot if isinstance(ot, str) else (ot.get("text", "") if isinstance(ot, dict) else str(ot))
                         if chunk_text.strip():
@@ -398,6 +400,7 @@ async def run_live(
                             # New user turn — reset spoken history so next response speaks fresh
                             last_spoken_text = ""
                             all_spoken_texts.clear()
+                            has_native_audio = False
                             # User started speaking — flush any pending TTS immediately
                             if transcript_buffer.strip():
                                 if flush_task and not flush_task.done():
