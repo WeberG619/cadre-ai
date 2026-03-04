@@ -36,7 +36,7 @@ app = FastAPI(title="Cadre-AI")
 
 # Persistent session storage — survives restarts and reconnects
 _db_path = Path(__file__).parent / "cadre_sessions.db"
-session_service = DatabaseSessionService(db_url=f"sqlite:///{_db_path}")
+session_service = DatabaseSessionService(db_url=f"sqlite+aiosqlite:///{_db_path}")
 runner = Runner(
     agent=root_agent,
     app_name="cadre",
@@ -144,10 +144,11 @@ async def get_session(app_name: str, user_id: str, session_id: str):
 async def list_sessions(app_name: str, user_id: str):
     """List recent sessions for this user."""
     try:
-        sessions = await session_service.list_sessions(
+        result = await session_service.list_sessions(
             app_name=app_name, user_id=user_id
         )
-        return {"sessions": [{"id": s.id} for s in (sessions or [])]}
+        sessions = result.sessions if hasattr(result, 'sessions') else (result or [])
+        return {"sessions": [{"id": s.id} for s in sessions]}
     except Exception:
         return {"sessions": []}
 

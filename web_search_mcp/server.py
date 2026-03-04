@@ -442,7 +442,7 @@ def youtube_search(query: str, num_results: int = 3) -> list[dict]:
 
 
 def generate_image_impl(prompt: str, aspect_ratio: str = "1:1", negative_prompt: str = "") -> dict:
-    """Generate an image using Gemini Imagen 3."""
+    """Generate an image using Google Imagen 4."""
     if not GOOGLE_API_KEY:
         return {"error": "GOOGLE_API_KEY not set"}
     try:
@@ -457,7 +457,7 @@ def generate_image_impl(prompt: str, aspect_ratio: str = "1:1", negative_prompt:
             config["negative_prompt"] = negative_prompt
 
         response = client.models.generate_images(
-            model="imagen-3.0-generate-002",
+            model="imagen-4.0-generate-001",
             prompt=prompt,
             config=config,
         )
@@ -481,6 +481,7 @@ def generate_image_impl(prompt: str, aspect_ratio: str = "1:1", negative_prompt:
 
 def search_semantic_scholar(query: str, limit: int = 5) -> list[dict]:
     """Search Semantic Scholar for academic papers."""
+    import time
     params = urllib.parse.urlencode({
         "query": query,
         "limit": limit,
@@ -488,8 +489,19 @@ def search_semantic_scholar(query: str, limit: int = 5) -> list[dict]:
     })
     url = f"https://api.semanticscholar.org/graph/v1/paper/search?{params}"
     req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT})
-    with urllib.request.urlopen(req, timeout=15) as resp:
-        data = json.loads(resp.read())
+    # Semantic Scholar rate limits at 1 req/sec without API key
+    for attempt in range(2):
+        try:
+            with urllib.request.urlopen(req, timeout=15) as resp:
+                data = json.loads(resp.read())
+            break
+        except urllib.error.HTTPError as e:
+            if e.code == 429 and attempt == 0:
+                time.sleep(3)
+                continue
+            raise
+    else:
+        return []
 
     results = []
     for paper in data.get("data", []):
@@ -718,7 +730,7 @@ async def list_tools() -> list[Tool]:
         ),
         Tool(
             name="generate_image",
-            description="Generate an AI image using Google Imagen 3. Creates original images from text descriptions. Use when users ask you to create, design, draw, or visualize something that doesn't exist yet. Do NOT use for finding real photos — use image_search for that.",
+            description="Generate an AI image using Google Imagen 4. Creates original images from text descriptions. Use when users ask you to create, design, draw, or visualize something that doesn't exist yet. Do NOT use for finding real photos — use image_search for that.",
             inputSchema={
                 "type": "object",
                 "properties": {
