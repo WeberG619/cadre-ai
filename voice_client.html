@@ -1116,7 +1116,9 @@ function appendAgentTranscript(chunk) {
     }
 
     agentTranscriptBuffer = deduplicateRepeatedText(agentTranscriptBuffer.trim());
-    updateBubbleText(agentLiveBubble, agentTranscriptBuffer.trim(), true);
+    // Strip [SUGGESTIONS:...] tags from display text
+    const displayText = agentTranscriptBuffer.replace(/\[SUGGESTIONS:.*?\]/g, '').trim();
+    updateBubbleText(agentLiveBubble, displayText, true);
 
     if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
     agentTranscriptTimer = setTimeout(flushAgentTranscript, 1000);
