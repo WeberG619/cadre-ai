@@ -191,7 +191,8 @@ def _enrich_event(data: dict) -> dict:
             }
             # Structured extraction for known multimedia tools
             try:
-                resp_str = json.dumps(fn.get("response", {}))
+                resp_obj = fn.get("response", {})
+                resp_str = json.dumps(resp_obj) if isinstance(resp_obj, dict) else str(resp_obj)
                 if tool_name == "image_search":
                     urls = re.findall(r'"image_url"\s*:\s*"([^"]+)"', resp_str)
                     titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
@@ -223,24 +224,46 @@ def _enrich_event(data: dict) -> dict:
                         }
                 # Extract citation sources from research/search tools
                 if tool_name in ("web_search", "deep_research", "search_papers", "wikipedia_lookup"):
+                    print(f"[sources] Tool: {tool_name}, resp_str length: {len(resp_str)}", flush=True)
+                    print(f"[sources] First 500 chars: {resp_str[:500]}", flush=True)
                     sources = []
-                    if tool_name in ("web_search", "deep_research"):
-                        titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
-                        urls = re.findall(r'"(?:url|link)"\s*:\s*"(https?://[^"]+)"', resp_str)
-                        for i in range(min(len(titles), len(urls))):
-                            sources.append({"num": i + 1, "title": titles[i], "url": urls[i], "type": "web"})
-                    elif tool_name == "search_papers":
-                        titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
-                        urls = re.findall(r'"(?:pdf_url|url|link)"\s*:\s*"(https?://[^"]+)"', resp_str)
-                        for i in range(min(len(titles), len(urls))):
-                            sources.append({"num": i + 1, "title": titles[i], "url": urls[i], "type": "paper"})
+                    # Extract all title/url pairs from the response
+                    all_titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
+                    all_urls = re.findall(r'"(?:url|link|pdf_url|AbstractURL|FirstURL|page)"\s*:\s*"(https?://[^"]+)"', resp_str)
+                    # Determine source type
+                    src_type = "web"
+                    if tool_name == "search_papers":
+                        src_type = "paper"
                     elif tool_name == "wikipedia_lookup":
-                        titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
-                        urls = re.findall(r'"(?:url|link)"\s*:\s*"(https?://[^"]+)"', resp_str)
-                        for i in range(min(len(titles), len(urls))):
-                            sources.append({"num": i + 1, "title": titles[i], "url": urls[i], "type": "wiki"})
+                        src_type = "wiki"
+                    elif tool_name == "deep_research":
+                        src_type = "web"  # mixed, but default to web
+                    # Pair titles with URLs (best effort)
+                    seen_urls = set()
+                    for url in all_urls:
+                        if url in seen_urls:
+                            continue
+                        seen_urls.add(url)
+                        # Try to find a title near this URL in the response
+                        title = ""
+                        for t in all_titles:
+                            if t and len(t) > 3:
+                                title = t
+                                all_titles.remove(t)
+                                break
+                        # Infer type for deep_research
+                        stype = src_type
+                        if tool_name == "deep_research":
+                            if "arxiv.org" in url or "semanticscholar" in url or "pdf" in url.lower():
+                                stype = "paper"
+                            elif "wikipedia.org" in url:
+                                stype = "wiki"
+                        sources.append({"num": len(sources) + 1, "title": title or url, "url": url, "type": stype})
                     if sources:
+                        print(f"[sources] Extracted {len(sources)} sources", flush=True)
                         data["_cadre_sources"] = sources[:10]
+                    else:
+                        print(f"[sources] No sources extracted!", flush=True)
 
                 if tool_name not in ("web_search", "deep_research", "search_papers", "wikipedia_lookup",
                                      "image_search", "video_search", "generate_image"):
