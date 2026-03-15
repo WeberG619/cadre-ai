@@ -1113,13 +1113,16 @@ function flushUserTranscript() {
 function isThinkingText(text) {
     // Detect Gemini's internal reasoning/planning that should not be shown to users
     // Strip markdown formatting before checking
-    var t = text.trim().replace(/\*\*/g, '').replace(/^#+\s*/gm, '').toLowerCase();
-    // Action-verb title headers — match even partial (no space required at end)
-    if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing|conducting|performing|running)\b/i.test(t)) return true;
+    var t = text.trim().replace(/\*\*/g, '').replace(/^#+\s*/gm, '').replace(/`[^`]+`/g, '').toLowerCase();
+    // Action-verb title headers
+    if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing|conducting|performing|running|identifying|confirming|evaluating|selecting|choosing|determining|assessing|deciding|considering|re-examining|re-affirming)\b/i.test(t)) return true;
     // First-person planning/reasoning
     if (/^(i'm |i've |i'll |i need |i want |i should |i will |i can |i have |my plan|my next|my current|the query|the search|the plan|let me |here'?s? (what|how|the)|okay,? |alright,? |now,? )/i.test(t)) return true;
-    // Tool/function references
-    if (/\b(tool to |function call|tool call|_search|search tool|the .* tool|using the |identified the|necessary tool|relevant tool)\b/i.test(t)) return true;
+    // Tool/function references (including backtick-wrapped function names)
+    if (/\b(tool to |function call|tool call|_search|search tool|the .* tool|using the |identified the|necessary tool|relevant tool|best fit|ideal tool|optimal tool|too granular|too specific|seems ideal|most suitable|dismissed tools|dismissed .* as)\b/i.test(t)) return true;
+    // Contains multiple function-style names (get_*, search_*, etc.) — always reasoning
+    var funcNames = text.match(/\b(get_|search_|create_|update_|delete_|list_|fetch_|find_)\w+/g);
+    if (funcNames && funcNames.length >= 2) return true;
     // Formatting/rendering instructions
     if (/\b(markdown format|following format|display each|format the|present the|render the|image links|results as|result count|default number|stick with)\b/i.test(t)) return true;
     return false;
@@ -1144,6 +1147,12 @@ function appendAgentTranscript(chunk) {
     if (!chunk || !chunk.trim()) return;
     // Suppress text while a tool is in progress
     if (toolInProgress) return;
+    // Post-tool grace: suppress reasoning echoes arriving within 2s of tool_response
+    if (toolResponseTime && (Date.now() - toolResponseTime < 2000)) {
+        if (isThinkingText(chunk)) {
+            return;  // Still reasoning text, skip it
+        }
+    }
     // ALWAYS strip image markdown/URLs from text — images only display via grid
     chunk = chunk.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
     chunk = chunk.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
@@ -1331,12 +1340,47 @@ function isSimilar(a, b) {
 // Detect and remove text that repeats itself (Gemini 2.5 sends text before AND after tool calls)
 function deduplicateRepeatedText(text) {
     if (!text || text.length < 60) return text;
-    // Split on '. ' followed by uppercase letter
+    // First: strip backtick-wrapped text for normalization purposes
+    function norm(s) { return s.toLowerCase().replace(/`[^`]+`/g, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
+    // Check if the second half is a near-copy of the first half (block duplication)
+    var normFull = norm(text);
+    if (normFull.length > 80) {
+        var half = Math.floor(normFull.length / 2);
+        var firstHalf = normFull.substring(0, half);
+        var secondHalf = normFull.substring(half);
+        // Check if a significant chunk of the first half appears in the second half
+        var checkLen = Math.min(60, Math.floor(half * 0.6));
+        if (checkLen > 20 && secondHalf.includes(firstHalf.substring(0, checkLen))) {
+            // Found block duplication — keep only the second occurrence
+            // Find the split point in original text
+            var normFirst40 = firstHalf.substring(0, 40);
+            var origHalf = Math.floor(text.length / 2);
+            var searchZone = norm(text.substring(origHalf));
+            var matchPos = searchZone.indexOf(normFirst40);
+            if (matchPos >= 0) {
+                // Walk back in original text to find clean sentence boundary
+                var cutStart = origHalf;
+                for (var i = origHalf; i < text.length - 20; i++) {
+                    if (norm(text.substring(i)).indexOf(normFirst40) === 0) {
+                        cutStart = i;
+                        break;
+                    }
+                }
+                // Find sentence boundary before cut point
+                var boundary = text.lastIndexOf('. ', cutStart);
+                if (boundary > origHalf * 0.5 && boundary < cutStart) {
+                    text = text.substring(boundary + 2).trim();
+                } else {
+                    text = text.substring(cutStart).trim();
+                }
+            }
+        }
+    }
+    // Sentence-level dedup as fallback
     var sentences = text.split(/\.\s+(?=[A-Z])/).map(function(s, i, arr) {
         return i < arr.length - 1 ? s + '.' : s;
     }).filter(function(s) { return s.trim().length > 15; });
     if (sentences.length < 2) return text;
-    function norm(s) { return s.toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
     var seen = {};
     var result = [];
     for (var i = 0; i < sentences.length; i++) {
@@ -1853,10 +1897,16 @@ function connectWebSocket() {
                 addToolCall(data._cadre_tool.name, data._cadre_tool.domain, data._cadre_tool.args);
             }
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
-                toolInProgress = false;  // Tool done, allow text again
-                toolResponseTime = Date.now();  // Track when tool response arrived
+                // Keep toolInProgress=true briefly — Gemini often sends reasoning text
+                // AGAIN after tool_response before the actual answer. Use a timer to
+                // allow text only after a short delay.
+                toolResponseTime = Date.now();
                 lastFinalizedAgentText = '';  // Clear so post-tool response isn't blocked by isSimilar
                 completeToolCall(data._cadre_tool.name);
+                // Delay releasing text suppression — Gemini sends reasoning echo first
+                setTimeout(function() {
+                    toolInProgress = false;
+                }, 800);
             }
 
             // AI-generated image
