@@ -1030,22 +1030,26 @@ function createBubble(type) {
 
 function updateBubbleText(bubble, text, rich) {
     if (!bubble) return;
-    const b = bubble.querySelector('.msg-body');
+    var b = bubble.querySelector('.msg-body');
     if (b) {
         // Preserve any existing media-grid (images) — only update/replace text content
         var existingGrid = b.querySelector('.media-grid');
         if (existingGrid) {
-            // Find or create a text container after the grid
+            // Strip ALL image markdown when images are already shown in grid
+            var cleanText = text
+                .replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '')
+                .replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '')
+                .trim();
             var textContainer = b.querySelector('.msg-text-content');
             if (!textContainer) {
                 textContainer = document.createElement('div');
                 textContainer.className = 'msg-text-content';
                 b.appendChild(textContainer);
             }
-            if (rich) {
-                textContainer.innerHTML = renderRichText(text);
-            } else {
-                textContainer.textContent = text;
+            if (rich && cleanText) {
+                textContainer.innerHTML = renderRichText(cleanText);
+            } else if (cleanText) {
+                textContainer.textContent = cleanText;
             }
         } else {
             if (rich) {
@@ -1109,12 +1113,14 @@ function isThinkingText(text) {
     // Detect Gemini's internal reasoning/planning that should not be shown to users
     // Strip markdown formatting before checking
     var t = text.trim().replace(/\*\*/g, '').replace(/^#+\s*/gm, '').toLowerCase();
-    // Bold title headers that indicate thinking (e.g., "Locating Taj Mahal Images")
-    if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing)\s/i.test(t)) return true;
-    if (/^(i'm (starting|initiating|going|looking|searching|using|calling)|i've (decided|initiated|started|begun)|i'll (use|leverage|call|invoke|search|look)|my plan is|i need to|let me (use|call|search|look)|my current focus|the query is)/i.test(t)) return true;
-    if (/\b(tool to find|function call|tool call|image_search|web_search|google_search|search tool|the .* tool)\b/i.test(t)) return true;
-    if (/\b(markdown format|following format|display each image|format the image|present these images|present them using|provide the user with|render the results|image links using)\b/i.test(t)) return true;
-    if (/\b(search query|result count|default number|next step will be|retrieve the images|stick with the default)\b/i.test(t)) return true;
+    // Action-verb title headers (thinking headers are always "[Verb]ing [Noun] [Noun]")
+    if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing|conducting|performing|running)\s/i.test(t)) return true;
+    // First-person planning/reasoning
+    if (/^(i'm |i've |i'll |i need |i want |i should |i will |my plan|my next|my current|the query|the search|the plan|let me )/i.test(t)) return true;
+    // Tool/function references
+    if (/\b(tool to |function call|tool call|_search|search tool|the .* tool|using the )\b/i.test(t)) return true;
+    // Formatting/rendering instructions
+    if (/\b(markdown format|following format|display each|format the|present the|render the|image links|results as|result count|default number|stick with)\b/i.test(t)) return true;
     return false;
 }
 
