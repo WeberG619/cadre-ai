@@ -1228,12 +1228,7 @@ function flushAgentTranscript() {
         renderSourcesPanel(bubble, currentTurnSources.slice());
     }
     currentTurnSources = [];
-    // If bubble has a media-grid, keep it alive so follow-up text merges into it
-    // instead of creating a duplicate bubble
-    var hasGrid = bubble && bubble.querySelector('.media-grid');
-    if (!hasGrid) {
-        agentLiveBubble = null;
-    }
+    agentLiveBubble = null;
     agentTranscriptBuffer = '';
     agentTranscriptTimer = null;
     setGenerating(false);
@@ -2015,6 +2010,11 @@ async function sendTextMessage() {
 
     // Clear interrupt flag — new user input
     interrupted = false;
+
+    // Reset agent bubble so the next response creates a fresh bubble
+    // (prevents grid-preservation from leaking into the next turn)
+    agentLiveBubble = null;
+    agentTranscriptBuffer = '';
 
     // Show user bubble
     ensureEmptyStateRemoved();
