@@ -1114,12 +1114,12 @@ function isThinkingText(text) {
     // Detect Gemini's internal reasoning/planning that should not be shown to users
     // Strip markdown formatting before checking
     var t = text.trim().replace(/\*\*/g, '').replace(/^#+\s*/gm, '').toLowerCase();
-    // Action-verb title headers (thinking headers are always "[Verb]ing [Noun] [Noun]")
-    if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing|conducting|performing|running)\s/i.test(t)) return true;
+    // Action-verb title headers — match even partial (no space required at end)
+    if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing|conducting|performing|running)\b/i.test(t)) return true;
     // First-person planning/reasoning
-    if (/^(i'm |i've |i'll |i need |i want |i should |i will |my plan|my next|my current|the query|the search|the plan|let me )/i.test(t)) return true;
+    if (/^(i'm |i've |i'll |i need |i want |i should |i will |i can |i have |my plan|my next|my current|the query|the search|the plan|let me |here'?s? (what|how|the)|okay,? |alright,? |now,? )/i.test(t)) return true;
     // Tool/function references
-    if (/\b(tool to |function call|tool call|_search|search tool|the .* tool|using the )\b/i.test(t)) return true;
+    if (/\b(tool to |function call|tool call|_search|search tool|the .* tool|using the |identified the|necessary tool|relevant tool)\b/i.test(t)) return true;
     // Formatting/rendering instructions
     if (/\b(markdown format|following format|display each|format the|present the|render the|image links|results as|result count|default number|stick with)\b/i.test(t)) return true;
     return false;
@@ -1144,12 +1144,10 @@ function appendAgentTranscript(chunk) {
     if (!chunk || !chunk.trim()) return;
     // Suppress text while a tool is in progress
     if (toolInProgress) return;
-    // Strip ALL image content if images were already displayed via grid
-    if (displayedImageUrls.size > 0) {
-        chunk = chunk.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
-        chunk = chunk.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
-        if (!chunk.trim()) return;
-    }
+    // ALWAYS strip image markdown/URLs from text — images only display via grid
+    chunk = chunk.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
+    chunk = chunk.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
+    if (!chunk.trim()) return;
     // Check both the chunk alone AND the accumulated buffer for thinking patterns
     var testText = agentTranscriptBuffer ? (agentTranscriptBuffer + chunk).trim() : chunk.trim();
     if (isThinkingText(chunk) || isThinkingText(testText)) {
@@ -1230,7 +1228,12 @@ function flushAgentTranscript() {
         renderSourcesPanel(bubble, currentTurnSources.slice());
     }
     currentTurnSources = [];
-    agentLiveBubble = null;
+    // If bubble has a media-grid, keep it alive so follow-up text merges into it
+    // instead of creating a duplicate bubble
+    var hasGrid = bubble && bubble.querySelector('.media-grid');
+    if (!hasGrid) {
+        agentLiveBubble = null;
+    }
     agentTranscriptBuffer = '';
     agentTranscriptTimer = null;
     setGenerating(false);
@@ -1346,24 +1349,14 @@ function deduplicateRepeatedText(text) {
 // ── Rich Text Rendering (agent bubbles) ─────────────────────
 function renderRichText(text) {
     if (!text) return '';
-    // If images were already displayed via grid, strip ALL markdown images and bare image URLs
-    if (displayedImageUrls.size > 0) {
-        text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
-        text = text.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
-    }
+    // ALWAYS strip markdown images and bare image URLs — images only show via displayImages() grid
+    text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
+    text = text.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
     // Escape HTML entities
     let h = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
-    // Markdown images: ![alt](url) — use data-lightbox for safe URL handling
-    h = h.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)/g, function(_, alt, url) {
-        return '<img class="msg-image" src="' + url + '" alt="' + alt + '" data-lightbox="' + url.replace(/"/g, '&quot;') + '" onerror="this.style.display=\'none\'">';
-    });
     // Markdown links: [text](url) — restrict URL chars to prevent attribute injection
     h = h.replace(/\[([^\]]+)\]\((https?:\/\/[^)"' ]+)\)/g,
         '<a href="$2" target="_blank" rel="noopener" style="color:var(--accent);text-decoration:underline">$1</a>');
-    // Bare image URLs → inline images (only if not already inside a tag attribute)
-    h = h.replace(/(?<!="|='|=)(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)/gi, function(_, url) {
-        return '<img class="msg-image" src="' + url + '" data-lightbox="' + url.replace(/"/g, '&quot;') + '" onerror="this.style.display=\'none\'">';
-    });
     // YouTube URLs → embedded video player
     h = h.replace(/(?<!="|='|=)(https?:\/\/(?:www\.)?(?:youtube\.com\/watch\?v=|youtu\.be\/)([\w-]{11})[^\s<]*)/gi,
         '<div style="margin:8px 0"><iframe width="400" height="225" src="https://www.youtube.com/embed/$2" frameborder="0" allow="accelerometer;autoplay;clipboard-write;encrypted-media;gyroscope;picture-in-picture" allowfullscreen style="border-radius:8px;border:1px solid var(--border)"></iframe></div>');
