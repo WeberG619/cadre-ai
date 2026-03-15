@@ -996,6 +996,8 @@ let lastImageBubble = null;  // Track last image bubble for merging response tex
 let toolInProgress = false;  // Suppress text while tool is running
 let toolResponseTime = 0;    // Timestamp of last tool response
 let agentPendingTimer = null; // Delay before creating bubble (thinking detection)
+let turnTextAllowed = false;  // Structural flag: only allow text after tool_response or 2s timeout
+let turnStartTimer = null;    // Timer to allow text if no tool_call arrives
 
 function ensureEmptyStateRemoved() {
     const e = document.getElementById('emptyState');
@@ -1103,6 +1105,28 @@ function appendUserTranscript(chunk) {
 function flushUserTranscript() {
     if (userTranscriptBuffer.trim()) {
         lastFinalizedUserText = userTranscriptBuffer.trim();
+        // ── New turn starting: suppress agent text until tool flow is resolved ──
+        turnTextAllowed = false;
+        toolInProgress = false;
+        agentTranscriptBuffer = '';
+        if (turnStartTimer) clearTimeout(turnStartTimer);
+        turnStartTimer = setTimeout(function() {
+            turnStartTimer = null;
+            if (!turnTextAllowed) {
+                turnTextAllowed = true;
+                // Flush any buffered direct-answer text
+                if (agentTranscriptBuffer.trim() && !agentLiveBubble) {
+                    agentLiveBubble = createBubble('agent');
+                    agentTurnHasAudio = false;
+                    currentTurnSources = [];
+                    setGenerating(true);
+                    var displayText = stripSuggestionsAndMeta(agentTranscriptBuffer);
+                    updateBubbleText(agentLiveBubble, displayText, true);
+                    if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
+                    agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
+                }
+            }
+        }, 2000);
     }
     userLiveBubble = null;
     userTranscriptBuffer = '';
@@ -1145,48 +1169,29 @@ function stripSuggestionsAndMeta(text) {
 
 function appendAgentTranscript(chunk) {
     if (!chunk || !chunk.trim()) return;
-    // Suppress text while a tool is in progress
+    // ── STRUCTURAL SUPPRESSION ──
+    // Suppress ALL text while tool is running
     if (toolInProgress) return;
-    // Post-tool grace: suppress reasoning echoes arriving within 2s of tool_response
-    if (toolResponseTime && (Date.now() - toolResponseTime < 2000)) {
-        if (isThinkingText(chunk)) {
-            return;  // Still reasoning text, skip it
-        }
+    // Suppress ALL text until turnTextAllowed (set by tool_response or 2s timeout)
+    // This prevents ALL pre-tool thinking text from ever appearing
+    if (!turnTextAllowed) {
+        // Silently buffer — if no tool_call comes, turnStartTimer will allow it
+        agentTranscriptBuffer += chunk;
+        return;
     }
     // ALWAYS strip image markdown/URLs from text — images only display via grid
     chunk = chunk.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
     chunk = chunk.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
     if (!chunk.trim()) return;
-    // Check both the chunk alone AND the accumulated buffer for thinking patterns
-    var testText = agentTranscriptBuffer ? (agentTranscriptBuffer + chunk).trim() : chunk.trim();
-    if (isThinkingText(chunk) || isThinkingText(testText)) {
-        toolInProgress = true;  // Pre-emptively suppress further thinking
-        // Remove any bubble that was started with early thinking text
-        if (agentLiveBubble) {
-            var wrapper = agentLiveBubble.closest('.msg-wrapper');
-            if (wrapper) wrapper.remove();
-            agentLiveBubble = null;
-            agentTranscriptBuffer = '';
-            if (agentTranscriptTimer) { clearTimeout(agentTranscriptTimer); agentTranscriptTimer = null; }
-            setGenerating(false);
-        }
-        return;
-    }
 
     if (!agentLiveBubble) {
-        // Buffer text before creating bubble — gives time to detect thinking patterns
         agentTranscriptBuffer += chunk;
         if (!agentPendingTimer) {
             agentPendingTimer = setTimeout(function() {
                 agentPendingTimer = null;
-                // Re-check if accumulated text is thinking
-                if (isThinkingText(agentTranscriptBuffer.trim())) {
-                    toolInProgress = true;
-                    agentTranscriptBuffer = '';
-                    return;
-                }
                 if (userLiveBubble) flushUserTranscript();
                 var test = agentTranscriptBuffer.trim();
+                if (!test) return;
                 if (lastFinalizedAgentText && isSimilar(test, lastFinalizedAgentText)) {
                     agentTranscriptBuffer = '';
                     return;
@@ -1195,13 +1200,13 @@ function appendAgentTranscript(chunk) {
                 agentTurnHasAudio = false;
                 currentTurnSources = [];
                 setGenerating(true);
-                var displayText = stripSuggestionsAndMeta(agentTranscriptBuffer);
+                var displayText = stripSuggestionsAndMeta(deduplicateRepeatedText(agentTranscriptBuffer));
                 updateBubbleText(agentLiveBubble, displayText, true);
                 if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
                 agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
-            }, 400);
+            }, 300);
         }
-        return;  // Don't proceed until buffer timer fires
+        return;
     }
 
     var trimmedChunk = chunk.trim();
@@ -1217,8 +1222,7 @@ function appendAgentTranscript(chunk) {
         agentTranscriptBuffer += chunk;
     }
 
-    agentTranscriptBuffer = deduplicateRepeatedText(agentTranscriptBuffer.trim());
-    var displayText = stripSuggestionsAndMeta(agentTranscriptBuffer);
+    var displayText = stripSuggestionsAndMeta(deduplicateRepeatedText(agentTranscriptBuffer.trim()));
     updateBubbleText(agentLiveBubble, displayText, true);
 
     if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
@@ -1337,71 +1341,37 @@ function isSimilar(a, b) {
     return false;
 }
 
-// Detect and remove text that repeats itself (Gemini 2.5 sends text before AND after tool calls)
+// Detect and remove duplicated text (Gemini 2.5 sends the answer twice)
 function deduplicateRepeatedText(text) {
-    if (!text || text.length < 60) return text;
-    // First: strip backtick-wrapped text for normalization purposes
-    function norm(s) { return s.toLowerCase().replace(/`[^`]+`/g, '').replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
-    // Check if the second half is a near-copy of the first half (block duplication)
-    var normFull = norm(text);
-    if (normFull.length > 80) {
-        var half = Math.floor(normFull.length / 2);
-        var firstHalf = normFull.substring(0, half);
-        var secondHalf = normFull.substring(half);
-        // Check if a significant chunk of the first half appears in the second half
-        var checkLen = Math.min(60, Math.floor(half * 0.6));
-        if (checkLen > 20 && secondHalf.includes(firstHalf.substring(0, checkLen))) {
-            // Found block duplication — keep only the second occurrence
-            // Find the split point in original text
-            var normFirst40 = firstHalf.substring(0, 40);
-            var origHalf = Math.floor(text.length / 2);
-            var searchZone = norm(text.substring(origHalf));
-            var matchPos = searchZone.indexOf(normFirst40);
-            if (matchPos >= 0) {
-                // Walk back in original text to find clean sentence boundary
-                var cutStart = origHalf;
-                for (var i = origHalf; i < text.length - 20; i++) {
-                    if (norm(text.substring(i)).indexOf(normFirst40) === 0) {
-                        cutStart = i;
-                        break;
-                    }
-                }
-                // Find sentence boundary before cut point
-                var boundary = text.lastIndexOf('. ', cutStart);
-                if (boundary > origHalf * 0.5 && boundary < cutStart) {
-                    text = text.substring(boundary + 2).trim();
-                } else {
-                    text = text.substring(cutStart).trim();
-                }
+    if (!text || text.length < 80) return text;
+    // Normalize: strip backticks, punctuation, lowercase, collapse spaces
+    function norm(s) { return s.replace(/`[^`]+`/g, '').toLowerCase().replace(/[^a-z0-9 ]/g, '').replace(/\s+/g, ' ').trim(); }
+    var n = norm(text);
+    if (n.length < 60) return text;
+    // Take the first 40 chars as a fingerprint
+    var fingerprint = n.substring(0, 40);
+    // Search for this fingerprint in the second half of the text
+    var searchStart = Math.floor(n.length * 0.3);
+    var pos = n.indexOf(fingerprint, searchStart);
+    if (pos > 0) {
+        // Found duplication! Map back to original text position.
+        // Count non-normalized chars to find the approximate cut point.
+        var ratio = pos / n.length;
+        var origCut = Math.floor(text.length * ratio);
+        // Find a clean sentence boundary near origCut
+        var bestBreak = -1;
+        for (var i = Math.max(0, origCut - 30); i < Math.min(text.length, origCut + 30); i++) {
+            if (text[i] === '.' && i + 1 < text.length && (text[i+1] === ' ' || text[i+1] === '\n' || /[A-Z]/.test(text[i+1]))) {
+                bestBreak = i + 1;
+                break;
             }
         }
-    }
-    // Sentence-level dedup as fallback
-    var sentences = text.split(/\.\s+(?=[A-Z])/).map(function(s, i, arr) {
-        return i < arr.length - 1 ? s + '.' : s;
-    }).filter(function(s) { return s.trim().length > 15; });
-    if (sentences.length < 2) return text;
-    var seen = {};
-    var result = [];
-    for (var i = 0; i < sentences.length; i++) {
-        var n = norm(sentences[i]);
-        var key = n.substring(0, 40);
-        if (key.length < 15) { result.push(sentences[i]); continue; }
-        if (seen[key]) break;
-        seen[key] = true;
-        result.push(sentences[i]);
-    }
-    var out = result.join(' ').trim();
-    // Trim trailing garbage after last proper sentence ending
-    var lastGoodEnd = Math.max(out.lastIndexOf('. '), out.lastIndexOf('."'), out.lastIndexOf('.)'));
-    if (lastGoodEnd === -1) lastGoodEnd = out.lastIndexOf('.');
-    if (lastGoodEnd > out.length * 0.5) {
-        var afterEnd = out.substring(lastGoodEnd + 1).trim();
-        if (afterEnd && /^[a-z.0-9]/.test(afterEnd)) {
-            out = out.substring(0, lastGoodEnd + 1).trim();
+        if (bestBreak > 0) {
+            return text.substring(0, bestBreak).trim();
         }
+        return text.substring(0, origCut).trim();
     }
-    return out;
+    return text;
 }
 
 // ── Rich Text Rendering (agent bubbles) ─────────────────────
@@ -1880,33 +1850,33 @@ function connectWebSocket() {
 
             // Tool calls (enriched by server)
             if (data._cadre_event === 'tool_call' && data._cadre_tool) {
-                toolInProgress = true;  // Suppress text while tool runs
-                // Cancel pending bubble creation timer
+                toolInProgress = true;
+                // Cancel turn start timer — we now KNOW it's a tool query
+                if (turnStartTimer) { clearTimeout(turnStartTimer); turnStartTimer = null; }
+                turnTextAllowed = false;  // Keep suppressing
+                // Cancel any pending bubble and discard ALL buffered thinking text
                 if (agentPendingTimer) { clearTimeout(agentPendingTimer); agentPendingTimer = null; }
-                // Remove thinking/reasoning text — users don't need to see internal model deliberation
                 if (agentLiveBubble) {
                     var wrapper = agentLiveBubble.closest('.msg-wrapper');
                     if (wrapper) wrapper.remove();
                     agentLiveBubble = null;
-                    agentTranscriptBuffer = '';
                     if (agentTranscriptTimer) { clearTimeout(agentTranscriptTimer); agentTranscriptTimer = null; }
                     setGenerating(false);
-                } else {
-                    agentTranscriptBuffer = '';  // Clear any buffered thinking text
                 }
+                agentTranscriptBuffer = '';  // Discard ALL pre-tool text
                 addToolCall(data._cadre_tool.name, data._cadre_tool.domain, data._cadre_tool.args);
             }
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
-                // Keep toolInProgress=true briefly — Gemini often sends reasoning text
-                // AGAIN after tool_response before the actual answer. Use a timer to
-                // allow text only after a short delay.
                 toolResponseTime = Date.now();
-                lastFinalizedAgentText = '';  // Clear so post-tool response isn't blocked by isSimilar
+                lastFinalizedAgentText = '';
+                agentTranscriptBuffer = '';  // Discard any text accumulated during tool execution
                 completeToolCall(data._cadre_tool.name);
-                // Delay releasing text suppression — Gemini sends reasoning echo first
+                // Allow text after a delay — Gemini sends reasoning echo before actual answer
                 setTimeout(function() {
                     toolInProgress = false;
-                }, 800);
+                    turnTextAllowed = true;
+                    agentTranscriptBuffer = '';  // Clear any reasoning echo that leaked into buffer
+                }, 1500);
             }
 
             // AI-generated image
@@ -2088,9 +2058,32 @@ async function sendTextMessage() {
     interrupted = false;
 
     // Reset agent bubble so the next response creates a fresh bubble
-    // (prevents grid-preservation from leaking into the next turn)
     agentLiveBubble = null;
     agentTranscriptBuffer = '';
+    toolInProgress = false;
+
+    // ── STRUCTURAL: Suppress all text until we know if tools are called ──
+    // Text is silently buffered. If tool_call arrives, buffer is discarded.
+    // If no tool_call after 2s, it's a direct answer — allow text through.
+    turnTextAllowed = false;
+    if (turnStartTimer) clearTimeout(turnStartTimer);
+    turnStartTimer = setTimeout(function() {
+        turnStartTimer = null;
+        if (!turnTextAllowed) {
+            turnTextAllowed = true;
+            // Flush any buffered direct-answer text
+            if (agentTranscriptBuffer.trim() && !agentLiveBubble) {
+                agentLiveBubble = createBubble('agent');
+                agentTurnHasAudio = false;
+                currentTurnSources = [];
+                setGenerating(true);
+                var displayText = stripSuggestionsAndMeta(agentTranscriptBuffer);
+                updateBubbleText(agentLiveBubble, displayText, true);
+                if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
+                agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
+            }
+        }
+    }, 2000);
 
     // Show user bubble
     ensureEmptyStateRemoved();
