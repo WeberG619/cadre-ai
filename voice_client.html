@@ -1868,7 +1868,7 @@ function connectWebSocket() {
             }
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
                 toolResponseTime = Date.now();
-                lastFinalizedAgentText = '';
+                // Do NOT clear lastFinalizedAgentText — keep for dedup
                 agentTranscriptBuffer = '';  // Discard any text accumulated during tool execution
                 completeToolCall(data._cadre_tool.name);
                 // Allow text after a delay — Gemini sends reasoning echo before actual answer
@@ -1918,15 +1918,17 @@ function connectWebSocket() {
                             audioMode = true;
                             playAudioChunk(part.inlineData.data);
                         }
-                        // Agent text parts — ONLY if no outputTranscription and not in audio mode
-                        if (part.text && !data.outputTranscription && !audioMode) {
-                            appendAgentTranscript(part.text);
-                        }
+                        // IMPORTANT: Do NOT use part.text for display.
+                        // part.text contains model thinking/reasoning AND answers,
+                        // causing thinking text leakage and answer duplication.
+                        // Use outputTranscription exclusively — it only contains
+                        // what the model actually speaks (clean answer, no thinking).
                     }
                 }
 
                 // Output transcription: what the agent said (text version of audio)
-                // Streams token-by-token — buffer into a single live bubble
+                // This is the ONLY text source — it contains only spoken answer text,
+                // never thinking/reasoning. Streams token-by-token.
                 if (data.outputTranscription) {
                     const text = typeof data.outputTranscription === 'string'
                         ? data.outputTranscription
