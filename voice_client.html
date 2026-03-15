@@ -1111,7 +1111,7 @@ function isThinkingText(text) {
     var t = text.trim().replace(/\*\*/g, '').replace(/^#+\s*/gm, '').toLowerCase();
     // Bold title headers that indicate thinking (e.g., "Locating Taj Mahal Images")
     if (/^(locating|initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving|preparing|finding|gathering|executing)\s/i.test(t)) return true;
-    if (/^(i'm (starting|initiating|going|looking|searching|using|calling)|i've decided|i'll (use|leverage|call|invoke|search|look)|my plan is|i need to|let me (use|call|search|look)|my current focus)/i.test(t)) return true;
+    if (/^(i'm (starting|initiating|going|looking|searching|using|calling)|i've (decided|initiated|started|begun)|i'll (use|leverage|call|invoke|search|look)|my plan is|i need to|let me (use|call|search|look)|my current focus|the query is)/i.test(t)) return true;
     if (/\b(tool to find|function call|tool call|image_search|web_search|google_search|search tool|the .* tool)\b/i.test(t)) return true;
     if (/\b(markdown format|following format|display each image|format the image|present these images|present them using|provide the user with|render the results|image links using)\b/i.test(t)) return true;
     if (/\b(search query|result count|default number|next step will be|retrieve the images|stick with the default)\b/i.test(t)) return true;

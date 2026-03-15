@@ -688,8 +688,8 @@ async def list_tools() -> list[Tool]:
                     },
                     "num_results": {
                         "type": "integer",
-                        "description": "Number of images to return (default 3, max 10)",
-                        "default": 3,
+                        "description": "Number of images to return (default 4, max 10)",
+                        "default": 4,
                     },
                 },
                 "required": ["query"],
@@ -835,7 +835,7 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
 
         elif name == "image_search":
             query = arguments["query"]
-            num = max(1, min(arguments.get("num_results", 3), 10))
+            num = max(1, min(arguments.get("num_results", 4), 10))
 
             images = []
             if GOOGLE_API_KEY and GOOGLE_CSE_ID:
