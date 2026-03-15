@@ -993,6 +993,7 @@ let agentTurnHasAudio = false;   // Did Gemini send audio this turn?
 let audioChunksReceived = 0;
 let displayedImageUrls = new Set();  // Track URLs already shown via displayImages
 let lastImageBubble = null;  // Track last image bubble for merging response text
+let toolInProgress = false;  // Suppress text while tool is running
 
 function ensureEmptyStateRemoved() {
     const e = document.getElementById('emptyState');
@@ -1088,6 +1089,8 @@ function flushUserTranscript() {
 // ── Agent transcript ─────────────────────────────────────────
 function appendAgentTranscript(chunk) {
     if (!chunk || !chunk.trim()) return;
+    // Suppress thinking text while a tool is in progress
+    if (toolInProgress) return;
 
     if (!agentLiveBubble) {
         if (userLiveBubble) flushUserTranscript();
@@ -1699,6 +1702,7 @@ function newConversation() {
     audioMode = false;
     displayedImageUrls.clear();
     lastImageBubble = null;
+    toolInProgress = false;
     if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
     if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
     if (audioContext) { audioContext.close(); audioContext = null; }
@@ -1750,18 +1754,21 @@ function connectWebSocket() {
 
             // Tool calls (enriched by server)
             if (data._cadre_event === 'tool_call' && data._cadre_tool) {
+                toolInProgress = true;  // Suppress text while tool runs
                 // Remove thinking/reasoning text — users don't need to see internal model deliberation
                 if (agentLiveBubble) {
                     const wrapper = agentLiveBubble.closest('.msg-wrapper');
                     if (wrapper) wrapper.remove();
                     agentLiveBubble = null;
                     agentTranscriptBuffer = '';
+                    lastFinalizedAgentText = '';
                     if (agentTranscriptTimer) { clearTimeout(agentTranscriptTimer); agentTranscriptTimer = null; }
                     setGenerating(false);
                 }
                 addToolCall(data._cadre_tool.name, data._cadre_tool.domain, data._cadre_tool.args);
             }
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
+                toolInProgress = false;  // Tool done, allow text again
                 completeToolCall(data._cadre_tool.name);
             }
 
@@ -1826,6 +1833,7 @@ function connectWebSocket() {
             if (data.inputTranscription) {
                 interrupted = false; // New user turn — clear interrupt flag
                 audioMode = false; // New user turn — reset audio mode
+                toolInProgress = false; // Reset tool suppression
                 const text = typeof data.inputTranscription === 'string'
                     ? data.inputTranscription
                     : data.inputTranscription.text || '';
