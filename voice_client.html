@@ -1869,14 +1869,12 @@ function connectWebSocket() {
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
                 toolResponseTime = Date.now();
                 // Do NOT clear lastFinalizedAgentText — keep for dedup
-                agentTranscriptBuffer = '';  // Discard any text accumulated during tool execution
+                agentTranscriptBuffer = '';
                 completeToolCall(data._cadre_tool.name);
-                // Allow text after a delay — Gemini sends reasoning echo before actual answer
-                setTimeout(function() {
-                    toolInProgress = false;
-                    turnTextAllowed = true;
-                    agentTranscriptBuffer = '';  // Clear any reasoning echo that leaked into buffer
-                }, 1500);
+                // Allow text immediately — outputTranscription only contains
+                // spoken answer text, never reasoning echoes
+                toolInProgress = false;
+                turnTextAllowed = true;
             }
 
             // AI-generated image
