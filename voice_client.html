@@ -995,6 +995,7 @@ let displayedImageUrls = new Set();  // Track URLs already shown via displayImag
 let lastImageBubble = null;  // Track last image bubble for merging response text
 let toolInProgress = false;  // Suppress text while tool is running
 let toolResponseTime = 0;    // Timestamp of last tool response
+let agentPendingTimer = null; // Delay before creating bubble (thinking detection)
 
 function ensureEmptyStateRemoved() {
     const e = document.getElementById('emptyState');
@@ -1166,17 +1167,34 @@ function appendAgentTranscript(chunk) {
     }
 
     if (!agentLiveBubble) {
-        if (userLiveBubble) flushUserTranscript();
-        var test = (agentTranscriptBuffer + chunk).trim();
-        if (lastFinalizedAgentText && isSimilar(test, lastFinalizedAgentText)) return;
-        var normChunk = chunk.trim().toLowerCase().replace(/[^a-z0-9]/g, '');
-        var normLast = lastFinalizedAgentText.toLowerCase().replace(/[^a-z0-9]/g, '');
-        if (normLast && normChunk.length > 10 && normLast.startsWith(normChunk)) return;
-        if (normLast && normChunk.length > 10 && normLast.includes(normChunk.slice(0, Math.min(60, normChunk.length)))) return;
-        agentLiveBubble = createBubble('agent');
-        agentTurnHasAudio = false;
-        currentTurnSources = [];
-        setGenerating(true);
+        // Buffer text before creating bubble — gives time to detect thinking patterns
+        agentTranscriptBuffer += chunk;
+        if (!agentPendingTimer) {
+            agentPendingTimer = setTimeout(function() {
+                agentPendingTimer = null;
+                // Re-check if accumulated text is thinking
+                if (isThinkingText(agentTranscriptBuffer.trim())) {
+                    toolInProgress = true;
+                    agentTranscriptBuffer = '';
+                    return;
+                }
+                if (userLiveBubble) flushUserTranscript();
+                var test = agentTranscriptBuffer.trim();
+                if (lastFinalizedAgentText && isSimilar(test, lastFinalizedAgentText)) {
+                    agentTranscriptBuffer = '';
+                    return;
+                }
+                agentLiveBubble = createBubble('agent');
+                agentTurnHasAudio = false;
+                currentTurnSources = [];
+                setGenerating(true);
+                var displayText = stripSuggestionsAndMeta(agentTranscriptBuffer);
+                updateBubbleText(agentLiveBubble, displayText, true);
+                if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
+                agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
+            }, 400);
+        }
+        return;  // Don't proceed until buffer timer fires
     }
 
     var trimmedChunk = chunk.trim();
@@ -1794,9 +1812,8 @@ function connectWebSocket() {
 
             // ── Edge TTS audio from server ──
             if (data._cadre_tts && data._cadre_tts.audio && !interrupted) {
-                // Don't flush if we just got a tool response (text still streaming in)
-                var sinceToolResponse = Date.now() - toolResponseTime;
-                if (agentLiveBubble && sinceToolResponse > 5000) flushAgentTranscript();
+                // Don't flush on TTS — let the 15s timer handle it
+                // Flushing here causes text to split into multiple bubbles
                 console.log('[cadre] Edge TTS received:', data._cadre_tts.text);
                 playEdgeTTS(data._cadre_tts.audio);
             }
@@ -1813,15 +1830,18 @@ function connectWebSocket() {
             // Tool calls (enriched by server)
             if (data._cadre_event === 'tool_call' && data._cadre_tool) {
                 toolInProgress = true;  // Suppress text while tool runs
+                // Cancel pending bubble creation timer
+                if (agentPendingTimer) { clearTimeout(agentPendingTimer); agentPendingTimer = null; }
                 // Remove thinking/reasoning text — users don't need to see internal model deliberation
                 if (agentLiveBubble) {
-                    const wrapper = agentLiveBubble.closest('.msg-wrapper');
+                    var wrapper = agentLiveBubble.closest('.msg-wrapper');
                     if (wrapper) wrapper.remove();
                     agentLiveBubble = null;
                     agentTranscriptBuffer = '';
-                    // Keep lastFinalizedAgentText for dedup — don't clear it
                     if (agentTranscriptTimer) { clearTimeout(agentTranscriptTimer); agentTranscriptTimer = null; }
                     setGenerating(false);
+                } else {
+                    agentTranscriptBuffer = '';  // Clear any buffered thinking text
                 }
                 addToolCall(data._cadre_tool.name, data._cadre_tool.domain, data._cadre_tool.args);
             }
