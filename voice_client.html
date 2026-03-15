@@ -991,6 +991,7 @@ let lastFinalizedUserText = '';
 let lastFinalizedAgentText = '';
 let agentTurnHasAudio = false;   // Did Gemini send audio this turn?
 let audioChunksReceived = 0;
+let displayedImageUrls = new Set();  // Track URLs already shown via displayImages
 
 function ensureEmptyStateRemoved() {
     const e = document.getElementById('emptyState');
@@ -1121,8 +1122,9 @@ function appendAgentTranscript(chunk) {
     }
 
     agentTranscriptBuffer = deduplicateRepeatedText(agentTranscriptBuffer.trim());
-    // Strip [SUGGESTIONS:...] tags from display text
-    const displayText = agentTranscriptBuffer.replace(/\[SUGGESTIONS:.*?\]/g, '').trim();
+    // Strip [SUGGESTIONS:...] tags and display instructions from display text
+    let displayText = agentTranscriptBuffer.replace(/\[SUGGESTIONS:.*?\]/g, '').trim();
+    displayText = displayText.replace(/DISPLAY each image using:.*$/gm, '').trim();
     updateBubbleText(agentLiveBubble, displayText, true);
 
     if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
@@ -1248,6 +1250,17 @@ function deduplicateRepeatedText(text) {
 // ── Rich Text Rendering (agent bubbles) ─────────────────────
 function renderRichText(text) {
     if (!text) return '';
+    // Strip markdown images that were already displayed via displayImages
+    if (displayedImageUrls.size > 0) {
+        // Remove ![alt](url) where url was already shown
+        text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, function(match, alt, url) {
+            return displayedImageUrls.has(url) ? '' : match;
+        });
+        // Remove bare image URLs that were already shown
+        text = text.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, function(match, url) {
+            return displayedImageUrls.has(url) ? '' : match;
+        });
+    }
     // Escape HTML entities
     let h = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
     // Markdown images: ![alt](url) — use data-lightbox for safe URL handling
@@ -1671,6 +1684,7 @@ function newConversation() {
     stopAllAudio();
     interrupted = false;
     audioMode = false;
+    displayedImageUrls.clear();
     if (scriptProcessor) { scriptProcessor.disconnect(); scriptProcessor = null; }
     if (mediaStream) { mediaStream.getTracks().forEach(t => t.stop()); mediaStream = null; }
     if (audioContext) { audioContext.close(); audioContext = null; }
@@ -1975,6 +1989,7 @@ function displayImages(images) {
     images.forEach(function(img) {
         var url = typeof img === 'string' ? img : img.url;
         var title = typeof img === 'string' ? '' : (img.title || '');
+        displayedImageUrls.add(url);  // Track to prevent duplicates in text
         var card = document.createElement('div');
         card.className = 'media-card';
         card.dataset.url = url;
@@ -2003,6 +2018,7 @@ function displayImages(images) {
 function openLightbox(url) {
     var lb = document.getElementById('lightbox');
     document.getElementById('lightboxImg').src = url;
+    lb.style.display = '';  // Clear any inline display override
     lb.classList.add('active');
 }
 
