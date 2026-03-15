@@ -1108,9 +1108,10 @@ function isThinkingText(text) {
     // Detect Gemini's internal reasoning/planning that should not be shown to users
     var t = text.trim().toLowerCase();
     if (/^(initiating|addressing|analyzing|processing|searching|fetching|looking up|retrieving)\s/i.test(t)) return true;
-    if (/^(i've decided to|i'll (use|leverage|call|invoke|search|look)|my plan is to|i need to|let me (use|call|search|look))/i.test(t)) return true;
+    if (/^(i've decided|i'll use|i'll leverage|i'll call|i'll invoke|i'll search|i'll look|my plan is|i need to|let me use|let me call|let me search|let me look)/i.test(t)) return true;
     if (/\b(tool to find|function call|tool call|image_search|web_search|google_search)\b/i.test(t)) return true;
-    if (/\b(markdown format|following format|display each image)\b/i.test(t)) return true;
+    if (/\b(markdown format|following format|display each image|format the image|present these images)\b/i.test(t)) return true;
+    if (/\b(search query is set to|using the default number|next step will be to format)\b/i.test(t)) return true;
     return false;
 }
 
@@ -1133,9 +1134,19 @@ function appendAgentTranscript(chunk) {
     if (!chunk || !chunk.trim()) return;
     // Suppress text while a tool is in progress
     if (toolInProgress) return;
-    // Suppress thinking/reasoning text (arrives before tool_call event)
-    if (isThinkingText(chunk)) {
+    // Check both the chunk alone AND the accumulated buffer for thinking patterns
+    var testText = agentTranscriptBuffer ? (agentTranscriptBuffer + chunk).trim() : chunk.trim();
+    if (isThinkingText(chunk) || isThinkingText(testText)) {
         toolInProgress = true;  // Pre-emptively suppress further thinking
+        // Remove any bubble that was started with early thinking text
+        if (agentLiveBubble) {
+            var wrapper = agentLiveBubble.closest('.msg-wrapper');
+            if (wrapper) wrapper.remove();
+            agentLiveBubble = null;
+            agentTranscriptBuffer = '';
+            if (agentTranscriptTimer) { clearTimeout(agentTranscriptTimer); agentTranscriptTimer = null; }
+            setGenerating(false);
+        }
         return;
     }
 
@@ -1272,9 +1283,18 @@ function renderSourcesPanel(bubble, sources) {
 // Check if two strings are essentially the same (exact match after normalization)
 function isSimilar(a, b) {
     if (!a || !b) return false;
-    const na = a.toLowerCase().replace(/[^a-z0-9]/g, '');
-    const nb = b.toLowerCase().replace(/[^a-z0-9]/g, '');
-    return na === nb;
+    var na = a.toLowerCase().replace(/[^a-z0-9]/g, '');
+    var nb = b.toLowerCase().replace(/[^a-z0-9]/g, '');
+    if (na === nb) return true;
+    // Also check if one contains 80%+ of the other (cumulative text detection)
+    if (na.length > 20 && nb.length > 20) {
+        if (na.includes(nb) || nb.includes(na)) return true;
+        // Check overlap — if the shorter one's first 60 chars match somewhere in the longer
+        var shorter = na.length < nb.length ? na : nb;
+        var longer = na.length < nb.length ? nb : na;
+        if (shorter.length > 30 && longer.includes(shorter.slice(0, 60))) return true;
+    }
+    return false;
 }
 
 // Detect and remove text that repeats itself: "Hello worldHello world" → "Hello world"
