@@ -1143,14 +1143,10 @@ function appendAgentTranscript(chunk) {
     if (!chunk || !chunk.trim()) return;
     // Suppress text while a tool is in progress
     if (toolInProgress) return;
-    // Strip markdown images that were already displayed via displayImages grid
+    // Strip ALL image content if images were already displayed via grid
     if (displayedImageUrls.size > 0) {
-        chunk = chunk.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, function(m, a, url) {
-            return displayedImageUrls.has(url) ? '' : m;
-        });
-        chunk = chunk.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, function(m, url) {
-            return displayedImageUrls.has(url) ? '' : m;
-        });
+        chunk = chunk.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
+        chunk = chunk.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
         if (!chunk.trim()) return;
     }
     // Check both the chunk alone AND the accumulated buffer for thinking patterns
@@ -1332,16 +1328,10 @@ function deduplicateRepeatedText(text) {
 // ── Rich Text Rendering (agent bubbles) ─────────────────────
 function renderRichText(text) {
     if (!text) return '';
-    // Strip markdown images that were already displayed via displayImages
+    // If images were already displayed via grid, strip ALL markdown images and bare image URLs
     if (displayedImageUrls.size > 0) {
-        // Remove ![alt](url) where url was already shown
-        text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, function(match, alt, url) {
-            return displayedImageUrls.has(url) ? '' : match;
-        });
-        // Remove bare image URLs that were already shown
-        text = text.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, function(match, url) {
-            return displayedImageUrls.has(url) ? '' : match;
-        });
+        text = text.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
+        text = text.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
     }
     // Escape HTML entities
     let h = text.replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
