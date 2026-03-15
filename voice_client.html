@@ -1833,10 +1833,6 @@ function connectWebSocket() {
                 toolInProgress = true;  // Suppress text while tool runs
                 // Cancel pending bubble creation timer
                 if (agentPendingTimer) { clearTimeout(agentPendingTimer); agentPendingTimer = null; }
-                // Save pre-tool text so we can detect if the model repeats it after tool_response
-                if (agentTranscriptBuffer.trim()) {
-                    lastFinalizedAgentText = agentTranscriptBuffer.trim();
-                }
                 // Remove thinking/reasoning text — users don't need to see internal model deliberation
                 if (agentLiveBubble) {
                     var wrapper = agentLiveBubble.closest('.msg-wrapper');
@@ -1853,6 +1849,7 @@ function connectWebSocket() {
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
                 toolInProgress = false;  // Tool done, allow text again
                 toolResponseTime = Date.now();  // Track when tool response arrived
+                lastFinalizedAgentText = '';  // Clear so post-tool response isn't blocked by isSimilar
                 completeToolCall(data._cadre_tool.name);
             }
 
