@@ -1678,12 +1678,21 @@ function newConversation() {
 }
 
 // ── WebSocket ────────────────────────────────────────────────
+let wsPingInterval = null;
+
 function connectWebSocket() {
     const protocol = window.location.protocol === 'https:' ? 'wss' : 'ws';
     ws = new WebSocket(`${protocol}://${SERVER}/run_live?app_name=${APP_NAME}&user_id=${USER_ID}&session_id=${sessionId}`);
 
     ws.onopen = () => {
         document.getElementById('micStatus').textContent = 'Connected — speak now';
+        // Keepalive ping every 15 seconds to prevent 1006 disconnect
+        if (wsPingInterval) clearInterval(wsPingInterval);
+        wsPingInterval = setInterval(() => {
+            if (ws && ws.readyState === WebSocket.OPEN) {
+                ws.send(JSON.stringify({ _cadre_ping: true }));
+            }
+        }, 15000);
     };
 
     ws.onmessage = (event) => {
@@ -1787,10 +1796,20 @@ function connectWebSocket() {
         document.getElementById('micStatus').textContent = 'Connection error';
     };
     ws.onclose = (ev) => {
-        document.getElementById('micStatus').textContent = ev.code === 1000 ? 'Disconnected' : `Disconnected (${ev.code})`;
+        if (wsPingInterval) { clearInterval(wsPingInterval); wsPingInterval = null; }
         isRecording = false;
         document.getElementById('micBtn').classList.remove('active');
         setGenerating(false);
+        if (ev.code === 1000) {
+            document.getElementById('micStatus').textContent = 'Disconnected';
+        } else {
+            document.getElementById('micStatus').textContent = `Reconnecting...`;
+            // Auto-reconnect after abnormal disconnect (1006, etc.)
+            setTimeout(() => {
+                console.log('[cadre] Auto-reconnecting after code', ev.code);
+                connectWebSocket();
+            }, 2000);
+        }
     };
 }
 

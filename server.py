@@ -194,12 +194,33 @@ def _enrich_event(data: dict) -> dict:
                 resp_obj = fn.get("response", {})
                 resp_str = json.dumps(resp_obj) if isinstance(resp_obj, dict) else str(resp_obj)
                 if tool_name == "image_search":
-                    urls = re.findall(r'"image_url"\s*:\s*"([^"]+)"', resp_str)
-                    titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
-                    if urls:
+                    # Parse JSON properly instead of regex (fixes first-call rendering)
+                    images_list = []
+                    if isinstance(resp_obj, dict):
+                        # Direct dict response — try "images" key first
+                        images_list = resp_obj.get("images", [])
+                        # ADK may wrap in {"text": "json_string"} — parse inner JSON
+                        if not images_list and "text" in resp_obj:
+                            try:
+                                inner = json.loads(resp_obj["text"])
+                                images_list = inner.get("images", [])
+                            except (json.JSONDecodeError, TypeError):
+                                pass
+                    # Fallback: regex extraction
+                    if not images_list:
+                        urls = re.findall(r'"image_url"\s*:\s*"([^"]+)"', resp_str)
+                        titles = re.findall(r'"title"\s*:\s*"([^"]*)"', resp_str)
+                        if urls:
+                            images_list = [
+                                {"image_url": urls[i], "title": titles[i] if i < len(titles) else ""}
+                                for i in range(len(urls))
+                            ]
+                    if images_list:
                         data["_cadre_images"] = [
-                            {"url": urls[i], "title": titles[i] if i < len(titles) else ""}
-                            for i in range(min(len(urls), 6))
+                            {"url": img.get("image_url", img.get("url", "")),
+                             "title": img.get("title", "")}
+                            for img in images_list[:6]
+                            if img.get("image_url") or img.get("url")
                         ]
                 elif tool_name == "video_search":
                     embeds = re.findall(r'"embed_url"\s*:\s*"([^"]+)"', resp_str)
@@ -301,6 +322,8 @@ async def run_live(
                 try:
                     # Check for activity_start (soft interrupt from client)
                     msg = json.loads(raw)
+                    if "_cadre_ping" in msg:
+                        continue  # Keepalive ping — ignore silently
                     if "activity_start" in msg:
                         print("[upstream] Client sent activity_start (soft interrupt)", flush=True)
                         # Forward as a LiveRequest with activity_start
