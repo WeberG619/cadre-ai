@@ -473,6 +473,7 @@ def generate_image_impl(prompt: str, aspect_ratio: str = "1:1", negative_prompt:
             }
         return {"error": "No image generated", "prompt": prompt}
     except Exception as e:
+        print(f"[generate_image] ERROR: {type(e).__name__}: {e}", flush=True)
         return {"error": str(e), "prompt": prompt}
 
 

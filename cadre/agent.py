@@ -22,6 +22,9 @@ _REPO_ROOT = Path(__file__).resolve().parent.parent
 REVIT_ENABLED = os.environ.get("REVIT_ENABLED", "true").lower() == "true"
 CADRE_MODEL = os.environ.get("CADRE_MODEL", "gemini-2.5-flash-native-audio-latest")
 
+# Pass parent env to MCP subprocesses (Cloud Run env vars don't auto-propagate)
+_ENV = os.environ.copy()
+
 # ── System Instruction ────────────────────────────────────────────────────────
 
 _BIM_INSTRUCTION = """
@@ -117,6 +120,7 @@ financial_mcp = McpToolset(
         server_params=StdioServerParameters(
             command="python3",
             args=[str(_REPO_ROOT / "financial_mcp" / "server.py")],
+            env=_ENV,
         ),
         timeout=30.0,
     ),
@@ -143,6 +147,7 @@ web_search_mcp = McpToolset(
         server_params=StdioServerParameters(
             command="python3",
             args=[str(_REPO_ROOT / "web_search_mcp" / "server.py")],
+            env=_ENV,
         ),
         timeout=30.0,
     ),
@@ -155,6 +160,7 @@ revit_mcp = McpToolset(
         server_params=StdioServerParameters(
             command="python3",
             args=[str(_REPO_ROOT / "revit_proxy_mcp" / "server.py")],
+            env=_ENV,
         )
     ),
 ) if REVIT_ENABLED else None
