@@ -1127,8 +1127,11 @@ function appendAgentTranscript(chunk) {
     displayText = displayText.replace(/DISPLAY each image using:.*$/gm, '').trim();
     updateBubbleText(agentLiveBubble, displayText, true);
 
+    // Don't auto-flush on a short timer — Gemini thinking model streams tokens
+    // with long pauses. Flush happens when: new user message, displayImages,
+    // new tool call, or a long 15s silence (safety net).
     if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
-    agentTranscriptTimer = setTimeout(flushAgentTranscript, 3000);
+    agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
 }
 
 function flushAgentTranscript() {
@@ -1720,6 +1723,7 @@ function connectWebSocket() {
 
             // ── Edge TTS audio from server ──
             if (data._cadre_tts && data._cadre_tts.audio && !interrupted) {
+                if (agentLiveBubble) flushAgentTranscript(); // Finalize text before TTS plays
                 console.log('[cadre] Edge TTS received:', data._cadre_tts.text);
                 playEdgeTTS(data._cadre_tts.audio);
             }
@@ -1735,6 +1739,7 @@ function connectWebSocket() {
 
             // Tool calls (enriched by server)
             if (data._cadre_event === 'tool_call' && data._cadre_tool) {
+                if (agentLiveBubble) flushAgentTranscript(); // Finalize thinking text before tool runs
                 addToolCall(data._cadre_tool.name, data._cadre_tool.domain, data._cadre_tool.args);
             }
             if (data._cadre_event === 'tool_response' && data._cadre_tool) {
