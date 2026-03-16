@@ -1882,9 +1882,18 @@ function connectWebSocket() {
                 // Cancel any pending bubble and discard ALL buffered thinking text
                 if (agentPendingTimer) { clearTimeout(agentPendingTimer); agentPendingTimer = null; }
                 if (agentLiveBubble) {
-                    var wrapper = agentLiveBubble.closest('.msg-wrapper');
-                    if (wrapper) wrapper.remove();
-                    agentLiveBubble = null;
+                    // Keep bubble if it has media content (images/videos) — don't wipe on chained tool calls
+                    var hasMedia = agentLiveBubble.closest('.msg-wrapper') &&
+                        agentLiveBubble.closest('.msg-wrapper').querySelector('.media-grid');
+                    if (!hasMedia) {
+                        var wrapper = agentLiveBubble.closest('.msg-wrapper');
+                        if (wrapper) wrapper.remove();
+                        agentLiveBubble = null;
+                    } else {
+                        // Clear only text, keep images
+                        var textEl = agentLiveBubble.querySelector('.bubble-text');
+                        if (textEl) textEl.innerHTML = '';
+                    }
                     if (agentTranscriptTimer) { clearTimeout(agentTranscriptTimer); agentTranscriptTimer = null; }
                     setGenerating(false);
                 }
