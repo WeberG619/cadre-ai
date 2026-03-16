@@ -1053,7 +1053,8 @@ function updateBubbleText(bubble, text, rich) {
     if (b) {
         // Preserve any existing media-grid (images) — only update/replace text content
         var existingGrid = b.querySelector('.media-grid');
-        if (existingGrid) {
+        var existingSummary = b.querySelector('.tool-summary');
+        if (existingGrid || existingSummary) {
             // Strip ALL image markdown when images are already shown in grid
             var cleanText = text
                 .replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '')
@@ -1897,10 +1898,11 @@ function connectWebSocket() {
                 // Cancel any pending bubble and discard ALL buffered thinking text
                 if (agentPendingTimer) { clearTimeout(agentPendingTimer); agentPendingTimer = null; }
                 if (agentLiveBubble) {
-                    // Keep bubble if it has media content (images/videos) — don't wipe on chained tool calls
-                    var hasMedia = agentLiveBubble.closest('.msg-wrapper') &&
-                        agentLiveBubble.closest('.msg-wrapper').querySelector('.media-grid');
-                    if (!hasMedia) {
+                    // Keep bubble if it has media or tool summaries — don't wipe on chained tool calls
+                    var hasRichContent = agentLiveBubble.closest('.msg-wrapper') &&
+                        (agentLiveBubble.closest('.msg-wrapper').querySelector('.media-grid') ||
+                         agentLiveBubble.closest('.msg-wrapper').querySelector('.tool-summary'));
+                    if (!hasRichContent) {
                         var wrapper = agentLiveBubble.closest('.msg-wrapper');
                         if (wrapper) wrapper.remove();
                         agentLiveBubble = null;
