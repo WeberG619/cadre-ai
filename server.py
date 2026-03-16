@@ -330,6 +330,20 @@ async def run_live(
     await websocket.accept()
     live_queue = LiveRequestQueue()
 
+    # Ensure session exists (Cloud Run ephemeral storage loses SQLite on restart)
+    try:
+        existing = await session_service.get_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+        if not existing:
+            raise ValueError("not found")
+    except Exception:
+        print(f"[ws] Session {session_id} not found, creating new one", flush=True)
+        session = await session_service.create_session(
+            app_name=app_name, user_id=user_id, session_id=session_id
+        )
+        print(f"[ws] Created session: {session.id}", flush=True)
+
     async def upstream():
         """Client audio/text → LiveRequestQueue"""
         try:
