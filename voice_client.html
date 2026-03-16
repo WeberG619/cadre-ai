@@ -958,6 +958,7 @@ let vizAnimId = null;
 
 // Track whether audio mode is active (receiving inlineData)
 let audioMode = false;
+let nativeAudioPlaying = false; // True once at least one PCM chunk plays successfully
 
 const runningTools = new Map();
 
@@ -1751,6 +1752,7 @@ async function processPlaybackQueue() {
             processPlaybackQueue();
         };
         src.start();
+        nativeAudioPlaying = true;
         document.getElementById('micStatus').textContent = 'Cadre is speaking...';
         console.log(`[cadre] Playing ${f32.length} samples (${(f32.length/24000).toFixed(2)}s) | queue: ${playbackQueue.length} | ctx: ${audioContext.state}`);
     } catch (e) {
@@ -1854,6 +1856,7 @@ function newConversation() {
     stopAllAudio();
     interrupted = false;
     audioMode = false;
+    nativeAudioPlaying = false;
     displayedImageUrls.clear();
     lastImageBubble = null;
     toolInProgress = false;
@@ -1890,12 +1893,16 @@ function connectWebSocket() {
         try {
             const data = JSON.parse(event.data);
 
-            // ── Edge TTS audio from server ──
+            // ── Edge TTS audio from server (fallback when native audio can't play) ──
             if (data._cadre_tts && data._cadre_tts.audio && !interrupted) {
-                // Don't flush on TTS — let the 15s timer handle it
-                // Flushing here causes text to split into multiple bubbles
-                console.log('[cadre] Edge TTS received:', data._cadre_tts.text);
-                playEdgeTTS(data._cadre_tts.audio);
+                // Only play Edge TTS if native audio isn't successfully playing
+                // Native audio requires AudioContext; Edge TTS uses HTML Audio (always works)
+                if (!nativeAudioPlaying) {
+                    console.log('[cadre] Edge TTS playing (native audio not active):', data._cadre_tts.text);
+                    playEdgeTTS(data._cadre_tts.audio);
+                } else {
+                    console.log('[cadre] Edge TTS skipped (native audio active):', data._cadre_tts.text);
+                }
             }
 
             // Server-side interrupt confirmation
@@ -2023,6 +2030,7 @@ function connectWebSocket() {
             if (data.inputTranscription) {
                 interrupted = false; // New user turn — clear interrupt flag
                 audioMode = false; // New user turn — reset audio mode
+                nativeAudioPlaying = false; // Reset native audio tracking
                 toolInProgress = false; // Reset tool suppression
                 const text = typeof data.inputTranscription === 'string'
                     ? data.inputTranscription
@@ -2081,6 +2089,7 @@ async function toggleMic() {
             connectWebSocket();
             isRecording = true;
             audioMode = false;
+            nativeAudioPlaying = false;
             interrupted = false;
             btn.classList.add('active');
             document.getElementById('micStatus').textContent = 'Listening...';
@@ -2140,6 +2149,8 @@ async function sendTextMessage() {
 
     // Clear interrupt flag — new user input
     interrupted = false;
+    nativeAudioPlaying = false;
+    audioMode = false;
 
     // Ensure AudioContext exists for playback (must happen during user gesture for autoplay policy)
     if (!audioContext) {
@@ -2147,7 +2158,7 @@ async function sendTextMessage() {
         console.log('[cadre] Created AudioContext during send gesture');
     }
     if (audioContext.state === 'suspended') {
-        audioContext.resume();
+        await audioContext.resume();
     }
 
     // Reset agent bubble so the next response creates a fresh bubble

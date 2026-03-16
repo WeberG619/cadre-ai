@@ -681,18 +681,18 @@ async def run_live(
                             if "functionResponse" in part:
                                 event_types.append(f"TOOL_RESP:{part['functionResponse'].get('name','?')}")
 
-                    # Accumulate text for TTS — from outputTranscription OR part.text
-                    # (native audio model sends outputTranscription; text fallback sends part.text)
+                    # Accumulate text for TTS — ALWAYS generate Edge TTS as fallback
+                    # Native audio plays on client when AudioContext works; Edge TTS is backup
                     tts_source_text = ""
-                    if "outputTranscription" in data and not has_native_audio:
+                    if "outputTranscription" in data:
                         ot = data["outputTranscription"]
                         tts_source_text = ot if isinstance(ot, str) else (ot.get("text", "") if isinstance(ot, dict) else str(ot))
-                    elif has_text_part and not has_native_audio and "outputTranscription" not in data:
+                    elif has_text_part and "outputTranscription" not in data:
                         # Model responded with text only (no audio) — use part.text for TTS
                         tts_source_text = text_part_content
                         print(f"[tts] Using part.text for TTS (no audio/transcription): {tts_source_text[:60]}", flush=True)
 
-                    if tts_source_text.strip() and not has_native_audio:
+                    if tts_source_text.strip():
                         chunk_text = tts_source_text
                         if chunk_text.strip():
                             ct = chunk_text.strip()
