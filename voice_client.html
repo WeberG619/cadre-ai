@@ -463,6 +463,21 @@
         .drag-overlay.active { display: flex; }
         .drag-overlay svg { width: 64px; height: 64px; fill: var(--accent); opacity: 0.6; }
 
+        /* ── Tool Summary Cards ────────────────────────────── */
+        .tool-summary {
+            margin-top: 12px;
+            padding: 14px 18px;
+            background: rgba(255,255,255,0.04);
+            border-left: 3px solid var(--accent);
+            border-radius: 8px;
+            font-size: 0.9em;
+            line-height: 1.6;
+            white-space: pre-line;
+        }
+        .tool-summary + .tool-summary {
+            margin-top: 10px;
+        }
+
         /* ── Image & Video Cards in Chat ────────────────────── */
         .media-grid {
             display: grid;
@@ -1909,6 +1924,19 @@ function connectWebSocket() {
                 // spoken answer text, never reasoning echoes
                 toolInProgress = false;
                 turnTextAllowed = true;
+            }
+
+            // Auto-render structured tool data as text (native audio model speaks but doesn't write)
+            if (data._cadre_tool_summary) {
+                ensureEmptyStateRemoved();
+                if (!agentLiveBubble) {
+                    agentLiveBubble = addAgentBubble();
+                }
+                var summaryDiv = document.createElement('div');
+                summaryDiv.className = 'tool-summary';
+                summaryDiv.innerHTML = renderRichText(data._cadre_tool_summary);
+                agentLiveBubble.appendChild(summaryDiv);
+                scrollToBottom();
             }
 
             // AI-generated image

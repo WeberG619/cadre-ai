@@ -313,11 +313,162 @@ def _enrich_event(data: dict) -> dict:
                         data["_cadre_images"] = [
                             {"url": u, "title": ""} for u in list(dict.fromkeys(img_urls))[:6]
                         ]
+                # ── Auto-render tool data as text for native audio model ──
+                # The audio model speaks results but doesn't write text, so we
+                # extract key data and send it for the frontend to render.
+                if tool_name == "get_technical_analysis":
+                    summary = _extract_technical_analysis(resp_str)
+                    if summary:
+                        data["_cadre_tool_summary"] = summary
+                elif tool_name == "get_market_overview":
+                    summary = _extract_market_overview(resp_str)
+                    if summary:
+                        data["_cadre_tool_summary"] = summary
+                elif tool_name == "search_papers":
+                    summary = _extract_papers(resp_str)
+                    if summary:
+                        data["_cadre_tool_summary"] = summary
+                elif tool_name == "get_stock_quote":
+                    summary = _extract_stock_quote(resp_str)
+                    if summary:
+                        data["_cadre_tool_summary"] = summary
+                elif tool_name == "get_company_fundamentals":
+                    summary = _extract_fundamentals(resp_str)
+                    if summary:
+                        data["_cadre_tool_summary"] = summary
+
             except Exception:
                 pass
             break
 
     return data
+
+
+def _extract_technical_analysis(resp_str: str) -> str:
+    """Extract key technical indicators from response."""
+    try:
+        symbol = re.search(r'"symbol"\s*:\s*"([^"]+)"', resp_str)
+        price = re.search(r'"price"\s*:\s*([0-9.]+)', resp_str)
+        rsi = re.search(r'"rsi(?:_14)?"\s*:\s*([0-9.]+)', resp_str)
+        macd = re.search(r'"macd"\s*:\s*(-?[0-9.]+)', resp_str)
+        signal = re.search(r'"(?:macd_)?signal"\s*:\s*(-?[0-9.]+)', resp_str)
+        sma_50 = re.search(r'"sma_50"\s*:\s*([0-9.]+)', resp_str)
+        sma_200 = re.search(r'"sma_200"\s*:\s*([0-9.]+)', resp_str)
+        recommendation = re.search(r'"(?:recommendation|overall|signal)"\s*:\s*"([^"]+)"', resp_str)
+
+        lines = []
+        sym = symbol.group(1) if symbol else "Stock"
+        lines.append(f"**Technical Analysis — {sym}**")
+        if price:
+            lines.append(f"Price: **${float(price.group(1)):.2f}**")
+        if rsi:
+            rsi_val = float(rsi.group(1))
+            rsi_label = "Oversold" if rsi_val < 30 else "Overbought" if rsi_val > 70 else "Neutral"
+            lines.append(f"RSI (14): {rsi_val:.1f} ({rsi_label})")
+        if macd and signal:
+            lines.append(f"MACD: {float(macd.group(1)):.2f} / Signal: {float(signal.group(1)):.2f}")
+        if sma_50:
+            lines.append(f"SMA 50: ${float(sma_50.group(1)):.2f}")
+        if sma_200:
+            lines.append(f"SMA 200: ${float(sma_200.group(1)):.2f}")
+        if recommendation:
+            lines.append(f"Signal: **{recommendation.group(1).upper()}**")
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception:
+        return ""
+
+
+def _extract_market_overview(resp_str: str) -> str:
+    """Extract major index data from market overview."""
+    try:
+        lines = ["**Market Overview**"]
+        for name, pattern in [
+            ("S&P 500", r'"SPY"[^}]*"price"\s*:\s*([0-9.]+)[^}]*"change_pct"\s*:\s*(-?[0-9.]+)'),
+            ("Nasdaq", r'"QQQ"[^}]*"price"\s*:\s*([0-9.]+)[^}]*"change_pct"\s*:\s*(-?[0-9.]+)'),
+            ("Dow", r'"DIA"[^}]*"price"\s*:\s*([0-9.]+)[^}]*"change_pct"\s*:\s*(-?[0-9.]+)'),
+        ]:
+            m = re.search(pattern, resp_str)
+            if m:
+                pct = float(m.group(2))
+                arrow = "▲" if pct >= 0 else "▼"
+                lines.append(f"{name}: ${float(m.group(1)):.2f} {arrow} {abs(pct):.2f}%")
+
+        # Fallback: try simpler patterns
+        if len(lines) == 1:
+            prices = re.findall(r'"([A-Z^.]+)"\s*:\s*\{[^}]*"price"\s*:\s*([0-9.]+)[^}]*"change_pct"\s*:\s*(-?[0-9.]+)', resp_str)
+            for sym, price, pct in prices[:5]:
+                pct_f = float(pct)
+                arrow = "▲" if pct_f >= 0 else "▼"
+                lines.append(f"{sym}: ${float(price):.2f} {arrow} {abs(pct_f):.2f}%")
+
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception:
+        return ""
+
+
+def _extract_papers(resp_str: str) -> str:
+    """Extract paper titles and info from search results."""
+    try:
+        titles = re.findall(r'"title"\s*:\s*"([^"]+)"', resp_str)
+        years = re.findall(r'"year"\s*:\s*(\d{4})', resp_str)
+        citations = re.findall(r'"citation_count"\s*:\s*(\d+)', resp_str)
+
+        if not titles:
+            return ""
+        lines = ["**Research Papers — AI in Architecture**"]
+        for i, title in enumerate(titles[:5]):
+            year = years[i] if i < len(years) else ""
+            cite = citations[i] if i < len(citations) else ""
+            detail = f" ({year})" if year else ""
+            if cite and int(cite) > 0:
+                detail += f" — {cite} citations"
+            lines.append(f"{i+1}. {title}{detail}")
+        return "\n".join(lines)
+    except Exception:
+        return ""
+
+
+def _extract_stock_quote(resp_str: str) -> str:
+    """Extract stock quote data."""
+    try:
+        symbol = re.search(r'"symbol"\s*:\s*"([^"]+)"', resp_str)
+        price = re.search(r'"price"\s*:\s*([0-9.]+)', resp_str)
+        change = re.search(r'"change_pct"\s*:\s*(-?[0-9.]+)', resp_str)
+        if not price:
+            return ""
+        sym = symbol.group(1) if symbol else "Stock"
+        pct = float(change.group(1)) if change else 0
+        arrow = "▲" if pct >= 0 else "▼"
+        return f"**{sym}**: ${float(price.group(1)):.2f} {arrow} {abs(pct):.2f}%"
+    except Exception:
+        return ""
+
+
+def _extract_fundamentals(resp_str: str) -> str:
+    """Extract company fundamental data."""
+    try:
+        name = re.search(r'"(?:company_name|longName|shortName)"\s*:\s*"([^"]+)"', resp_str)
+        pe = re.search(r'"(?:pe_ratio|trailingPE)"\s*:\s*([0-9.]+)', resp_str)
+        mcap = re.search(r'"market_cap"\s*:\s*([0-9.e+]+)', resp_str)
+        rev = re.search(r'"(?:revenue|totalRevenue)"\s*:\s*([0-9.e+]+)', resp_str)
+        lines = []
+        if name:
+            lines.append(f"**{name.group(1)} — Fundamentals**")
+        if pe:
+            lines.append(f"P/E Ratio: {float(pe.group(1)):.1f}")
+        if mcap:
+            val = float(mcap.group(1))
+            if val > 1e12:
+                lines.append(f"Market Cap: ${val/1e12:.2f}T")
+            elif val > 1e9:
+                lines.append(f"Market Cap: ${val/1e9:.1f}B")
+        if rev:
+            val = float(rev.group(1))
+            if val > 1e9:
+                lines.append(f"Revenue: ${val/1e9:.1f}B")
+        return "\n".join(lines) if len(lines) > 1 else ""
+    except Exception:
+        return ""
 
 
 @app.websocket("/run_live")
