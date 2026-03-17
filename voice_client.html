@@ -1259,6 +1259,57 @@ function appendAgentTranscript(chunk) {
     agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
 }
 
+// replaceAgentTranscript — for cumulative outputTranscription.
+// Replaces the entire buffer instead of appending, preventing duplication.
+function replaceAgentTranscript(fullText) {
+    if (!fullText || !fullText.trim()) return;
+    if (toolInProgress) return;
+    if (!turnTextAllowed) {
+        agentTranscriptBuffer = fullText;
+        return;
+    }
+    // Filter thinking text
+    var lines = fullText.split('\n');
+    var clean = lines.filter(function(l) { return !l.trim() || !isThinkingText(l); });
+    fullText = clean.join('\n');
+    fullText = fullText.replace(/!\[([^\]]*)\]\((https?:\/\/[^)]+)\)\n?/g, '');
+    fullText = fullText.replace(/(https?:\/\/[^\s"'<]+\.(?:jpg|jpeg|png|gif|webp|svg)(?:\?[^\s"'<]*)?)\n?/gi, '');
+    if (!fullText.trim()) return;
+
+    if (!agentLiveBubble) {
+        agentTranscriptBuffer = fullText;
+        if (!agentPendingTimer) {
+            agentPendingTimer = setTimeout(function() {
+                agentPendingTimer = null;
+                if (userLiveBubble) flushUserTranscript();
+                var test = agentTranscriptBuffer.trim();
+                if (!test) return;
+                if (lastFinalizedAgentText && isSimilar(test, lastFinalizedAgentText)) {
+                    agentTranscriptBuffer = '';
+                    return;
+                }
+                agentLiveBubble = createBubble('agent');
+                agentTurnHasAudio = false;
+                currentTurnSources = [];
+                setGenerating(true);
+                var displayText = stripSuggestionsAndMeta(deduplicateRepeatedText(agentTranscriptBuffer));
+                updateBubbleText(agentLiveBubble, displayText, true);
+                if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
+                agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
+            }, 300);
+        }
+        return;
+    }
+
+    // Replace buffer entirely — outputTranscription is cumulative
+    agentTranscriptBuffer = fullText;
+    var displayText = stripSuggestionsAndMeta(deduplicateRepeatedText(agentTranscriptBuffer.trim()));
+    updateBubbleText(agentLiveBubble, displayText, true);
+
+    if (agentTranscriptTimer) clearTimeout(agentTranscriptTimer);
+    agentTranscriptTimer = setTimeout(flushAgentTranscript, 15000);
+}
+
 function flushAgentTranscript() {
     const text = agentTranscriptBuffer.trim();
     const bubble = agentLiveBubble;
@@ -2019,12 +2070,14 @@ function connectWebSocket() {
 
                 // Output transcription: what the agent said (text version of audio)
                 // Primary text source — clean spoken answer, no thinking text.
+                // outputTranscription is CUMULATIVE — each message has full text so far.
+                // Use replaceAgentTranscript to avoid duplication.
                 if (data.outputTranscription) {
                     turnHasTranscription = true;
                     const text = typeof data.outputTranscription === 'string'
                         ? data.outputTranscription
                         : data.outputTranscription.text || '';
-                    if (text.trim()) appendAgentTranscript(text);
+                    if (text.trim()) replaceAgentTranscript(text);
                 }
             }
 
