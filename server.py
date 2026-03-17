@@ -23,7 +23,7 @@ from google.adk.runners import Runner, RunConfig
 from google.adk.agents.live_request_queue import LiveRequestQueue, LiveRequest
 from google.adk.sessions import DatabaseSessionService
 from google.genai import types
-from google.genai.types import RealtimeInputConfig, ActivityHandling
+from google.genai.types import RealtimeInputConfig
 
 EDGE_TTS_VOICE = os.environ.get("CADRE_TTS_VOICE", "en-US-AndrewNeural")
 
@@ -506,9 +506,7 @@ async def run_live(
                     if "_cadre_ping" in msg:
                         continue  # Keepalive ping — ignore silently
                     if "activity_start" in msg:
-                        print("[upstream] Client sent activity_start (soft interrupt)", flush=True)
-                        # Forward as a LiveRequest with activity_start
-                        live_queue.send(LiveRequest.model_validate({"activity_start": {}}))
+                        # Ignored — automatic VAD handles activity detection
                         continue
                     live_queue.send(LiveRequest.model_validate_json(raw))
                 except Exception as e:
@@ -648,9 +646,7 @@ async def run_live(
                     ),
                     output_audio_transcription=types.AudioTranscriptionConfig(),
                     input_audio_transcription=types.AudioTranscriptionConfig(),
-                    realtime_input_config=RealtimeInputConfig(
-                        activityHandling=ActivityHandling.START_OF_ACTIVITY_INTERRUPTS,
-                    ),
+                    realtime_input_config=RealtimeInputConfig(),
                 ),
             ):
                 try:
