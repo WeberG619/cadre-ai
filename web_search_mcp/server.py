@@ -22,6 +22,8 @@ server = Server("web-search-mcp")
 GOOGLE_API_KEY = os.environ.get("GOOGLE_API_KEY", "")
 # Google Custom Search Engine ID — if not set, uses fallback
 GOOGLE_CSE_ID = os.environ.get("GOOGLE_CSE_ID", "")
+# Tavily API key — when set, Tavily is preferred for web search
+TAVILY_API_KEY = os.environ.get("TAVILY_API_KEY", "")
 
 USER_AGENT = "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/131.0.0.0 Safari/537.36"
 
@@ -131,6 +133,27 @@ def duckduckgo_search(query: str, num_results: int = 5) -> list[dict]:
             pass
 
     return results[:num_results]
+
+
+def tavily_search(query: str, num_results: int = 5) -> list[dict]:
+    """Use Tavily Search API. Returns the same {title, url, snippet} shape."""
+    from tavily import TavilyClient
+
+    client = TavilyClient(api_key=TAVILY_API_KEY)
+    response = client.search(
+        query=query,
+        max_results=min(num_results, 10),
+        search_depth="basic",
+    )
+
+    results = []
+    for item in response.get("results", []):
+        results.append({
+            "title": item.get("title", ""),
+            "url": item.get("url", ""),
+            "snippet": item.get("content", ""),
+        })
+    return results
 
 
 def geocode_location(location: str) -> tuple[float, float, str]:
@@ -272,8 +295,13 @@ def extract_page_content(url: str, max_chars: int = 3000) -> str:
 
 def deep_web_search(query: str, num_results: int = 5) -> dict:
     """Enhanced search: initial results + page content extraction + auto-refine."""
-    # Phase 1: initial search
-    if GOOGLE_API_KEY and GOOGLE_CSE_ID:
+    # Phase 1: initial search — prefer Tavily, then Google CSE, then DuckDuckGo
+    if TAVILY_API_KEY:
+        try:
+            results = tavily_search(query, num_results)
+        except Exception:
+            results = duckduckgo_search(query, num_results)
+    elif GOOGLE_API_KEY and GOOGLE_CSE_ID:
         try:
             results = google_custom_search(query, num_results)
         except Exception:
@@ -295,7 +323,9 @@ def deep_web_search(query: str, num_results: int = 5) -> dict:
     if avg_snippet < 30 and len(results) < 3:
         refined_query = f"{query} detailed information guide"
         try:
-            if GOOGLE_API_KEY and GOOGLE_CSE_ID:
+            if TAVILY_API_KEY:
+                extra = tavily_search(refined_query, 3)
+            elif GOOGLE_API_KEY and GOOGLE_CSE_ID:
                 extra = google_custom_search(refined_query, 3)
             else:
                 extra = duckduckgo_search(refined_query, 3)
@@ -820,8 +850,13 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
                 result = deep_web_search(query, num)
                 return [TextContent(type="text", text=json.dumps(result, indent=2))]
 
-            # Standard search: Google CSE first, fall back to DuckDuckGo
-            if GOOGLE_API_KEY and GOOGLE_CSE_ID:
+            # Standard search: prefer Tavily, then Google CSE, then DuckDuckGo
+            if TAVILY_API_KEY:
+                try:
+                    results = tavily_search(query, num)
+                except Exception:
+                    results = duckduckgo_search(query, num)
+            elif GOOGLE_API_KEY and GOOGLE_CSE_ID:
                 try:
                     results = google_custom_search(query, num)
                 except Exception:
@@ -938,6 +973,8 @@ async def call_tool(name: str, arguments: dict) -> list[TextContent]:
         # Redact API keys from error messages
         if GOOGLE_API_KEY:
             error_msg = error_msg.replace(GOOGLE_API_KEY, "[REDACTED]")
+        if TAVILY_API_KEY:
+            error_msg = error_msg.replace(TAVILY_API_KEY, "[REDACTED]")
         return [TextContent(type="text", text=json.dumps({"error": error_msg}))]
 
 
