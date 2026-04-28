@@ -1,3 +1,5 @@
+[![MseeP.ai Security Assessment Badge](https://mseep.net/pr/weberg619-cadre-ai-badge.png)](https://mseep.ai/app/weberg619-cadre-ai)
+
 # CADRE·AI
 
 **Voice-controlled AI agent for architects, engineers, and business professionals.**
